@@ -3,13 +3,12 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getFirestore, doc, setDoc, collection, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { 
-  Camera, Square, MousePointer2, Move, Ruler, Video, Shield, 
-  Settings2, Map, Maximize, Download, Presentation, Save, 
-  RotateCcw, Trash2, X, Plus, AlertCircle, FileText, CheckCircle2,
-  ZoomIn, ZoomOut, Upload, FilePlus, FolderOpen, Loader2
+  Camera, Square, MousePointer2, Move, Video, Shield, 
+  Settings2, Download, Presentation, Save, 
+  Trash2, X, AlertCircle, CheckCircle2,
+  Upload, FilePlus, FolderOpen, Loader2, MessageCircle
 } from 'lucide-react';
 
-// --- FIREBASE SETUP (Tus credenciales de kgbsecurity) ---
 const firebaseConfig = {
   apiKey: "AIzaSyAUc1FRebtgsaRsdY-juAe6B_gswH00Vug",
   authDomain: "kgbsecurity-3aa6a.firebaseapp.com",
@@ -60,6 +59,7 @@ const DEMO_PROJECT = {
   id: 'demo-1',
   name: 'Local Comercial Ficticio',
   client: 'Cliente Demo S.A.',
+  phone: '', 
   scale: 20,
   bgImage: null,
   walls: [
@@ -144,13 +144,15 @@ export default function App() {
   const [isPresenting, setIsPresenting] = useState(false);
   
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
-  const [newProjData, setNewProjData] = useState({ name: 'Nuevo Local', client: 'Nombre del Cliente', width: 20, height: 8 });
+  const [newProjData, setNewProjData] = useState({ name: 'Nuevo Local', client: 'Nombre del Cliente', phone: '', width: 20, height: 8 });
 
   const [user, setUser] = useState(null);
   const [savedProjects, setSavedProjects] = useState([]);
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  
+  // Nuevo sistema de notificaciones (Toast)
+  const [toast, setToast] = useState(null);
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -158,6 +160,11 @@ export default function App() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
   const svgRef = useRef(null);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
   
   useEffect(() => {
     const initAuth = async () => {
@@ -191,10 +198,10 @@ export default function App() {
       const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'projects', project.id);
       await setDoc(docRef, projData);
       setProject(projData);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2000);
+      showToast('Proyecto guardado en la nube correctamente');
     } catch(e) {
       console.error("Save error", e);
+      showToast('Error al guardar en la nube', 'error');
     }
     setIsSaving(false);
   };
@@ -205,14 +212,78 @@ export default function App() {
     setView({ x: 0, y: 0, zoom: 1 });
     setSelectedId(null);
     setMode('select');
+    showToast('Proyecto cargado correctamente');
   };
 
   const deleteProject = async (id) => {
     if (!user) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'projects', id));
+      showToast('Proyecto eliminado');
     } catch(e) {
       console.error(e);
+    }
+  };
+
+  const handleWhatsApp = () => {
+    if (!project.phone || project.phone.length < 5) {
+      showToast('Por favor, ingresa un celular válido en la cabecera.', 'error');
+      return;
+    }
+
+    const svgElement = svgRef.current;
+    if (!svgElement) return;
+
+    try {
+      // Nos aseguramos que el SVG sea serializable
+      if (!svgElement.getAttribute("xmlns")) {
+        svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      }
+
+      const svgData = new XMLSerializer().serializeToString(svgElement);
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      
+      const rect = svgElement.getBoundingClientRect();
+      const scale = 2; // Doble resolución para que se vea nítido
+      canvas.width = rect.width * scale;
+      canvas.height = rect.height * scale;
+
+      const img = new Image();
+      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = () => {
+        // Fondo oscuro para que coincida con el tema
+        ctx.fillStyle = '#020617'; 
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        
+        // 1. Descargar la imagen
+        const a = document.createElement("a");
+        a.download = `Plano_${project.name.replace(/\s+/g, '_')}.png`;
+        a.href = canvas.toDataURL("image/png");
+        a.click();
+        
+        URL.revokeObjectURL(url); 
+
+        // 2. Abrir WhatsApp
+        const msg = `Hola ${project.client || ''}, te envío adjunto el diseño del plano con la distribución de cámaras propuesta para: ${project.name}. (Por favor, envíame la imagen que se acaba de descargar para revisarlo juntos).`;
+        const waUrl = `https://wa.me/51${project.phone.replace(/\s+/g, '')}?text=${encodeURIComponent(msg)}`;
+        
+        setTimeout(() => {
+          window.open(waUrl, '_blank');
+        }, 800); // Esperamos a que la descarga inicie
+        
+        showToast('Descargando foto y abriendo WhatsApp...');
+      };
+      
+      img.src = url;
+    } catch (error) {
+      console.error(error);
+      showToast('Hubo un error al generar la imagen', 'error');
     }
   };
 
@@ -399,6 +470,7 @@ export default function App() {
       id: `proj-${Date.now()}`,
       name: newProjData.name,
       client: newProjData.client,
+      phone: newProjData.phone,
       scale: scale,
       bgImage: null,
       walls: newWalls,
@@ -420,7 +492,7 @@ export default function App() {
     ];
 
     return (
-      <div className="w-16 md:w-64 bg-slate-900 border-r border-slate-800 flex flex-col items-center md:items-stretch py-4 shrink-0 transition-all">
+      <div className="w-16 md:w-64 bg-slate-900 border-r border-slate-800 flex flex-col items-center md:items-stretch py-4 shrink-0 transition-all z-20">
         <div className="hidden md:block px-4 mb-6">
           <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Herramientas</h2>
         </div>
@@ -492,9 +564,9 @@ export default function App() {
     
     if (!selectedCam) {
       return (
-        <div className="w-80 bg-slate-900 border-l border-slate-800 p-6 flex flex-col items-center justify-center text-slate-500 shrink-0">
+        <div className="w-80 bg-slate-900 border-l border-slate-800 p-6 flex flex-col items-center justify-center text-slate-500 shrink-0 z-20">
           <Settings2 size={48} className="mb-4 opacity-20" />
-          <p className="text-sm text-center">Seleccione un elemento para ver sus propiedades</p>
+          <p className="text-sm text-center">Seleccione una cámara para ver propiedades</p>
         </div>
       );
     }
@@ -504,7 +576,7 @@ export default function App() {
       : 0;
 
     return (
-      <div className="w-80 bg-slate-900 border-l border-slate-800 p-6 overflow-y-auto shrink-0 custom-scrollbar">
+      <div className="w-80 bg-slate-900 border-l border-slate-800 p-6 overflow-y-auto shrink-0 custom-scrollbar z-20">
         <h2 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
           <Video className="text-blue-500" size={20} /> Propiedades
         </h2>
@@ -587,7 +659,7 @@ export default function App() {
             <h4 className="text-xs font-semibold text-slate-400 uppercase mb-3 flex items-center gap-2"><CheckCircle2 size={14}/> Análisis Estimado</h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-slate-500">Ancho visible a {selectedCam.maxDist}m</span>
+                <span className="text-slate-500">Ancho a {selectedCam.maxDist}m</span>
                 <span className="text-slate-300 font-mono">{(2 * selectedCam.maxDist * Math.tan(toRad(selectedCam.hfov/2))).toFixed(1)}m</span>
               </div>
               <div className="flex justify-between">
@@ -625,6 +697,7 @@ export default function App() {
 
         <svg 
           ref={svgRef}
+          xmlns="http://www.w3.org/2000/svg"
           className="absolute inset-0 w-full h-full"
           style={{ touchAction: 'none' }} 
         >
@@ -742,7 +815,7 @@ export default function App() {
           </g>
         </svg>
         
-        <div className="absolute bottom-6 right-6 bg-slate-900/80 backdrop-blur px-4 py-2 rounded-lg border border-slate-700/50 flex items-center gap-3 text-slate-300 text-xs">
+        <div className="absolute bottom-6 right-6 bg-slate-900/80 backdrop-blur px-4 py-2 rounded-lg border border-slate-700/50 flex items-center gap-3 text-slate-300 text-xs pointer-events-none">
           <div className="w-16 h-1 bg-slate-500 relative">
              <div className="absolute -top-1 -left-px w-0.5 h-3 bg-slate-400"></div>
              <div className="absolute -top-1 -right-px w-0.5 h-3 bg-slate-400"></div>
@@ -756,40 +829,75 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-slate-950 font-sans overflow-hidden text-slate-200">
       
-      <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0 z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
+      {/* CABECERA CON NOMBRES Y WA */}
+      <header className="h-auto min-h-14 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-2 shrink-0 z-30">
+        <div className="flex items-start gap-3 w-full md:w-auto">
+          <div className="w-8 h-8 mt-1 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
             <Shield size={18} className="text-white" />
           </div>
-          <div>
-            <h1 className="font-bold text-sm tracking-wide text-white leading-tight">CCTV Planner Pro</h1>
-            <p className="text-[10px] text-slate-400 leading-tight">{project.name} - {project.client}</p>
+          <div className="flex flex-col gap-1 w-full max-w-sm">
+            <input 
+              type="text" 
+              value={project.name}
+              onChange={(e) => setProject({...project, name: e.target.value})}
+              className="bg-transparent text-white font-bold text-sm tracking-wide leading-tight focus:outline-none focus:border-b border-blue-500 placeholder-slate-500"
+              placeholder="Nombre del plano (ej. Local Comercial)"
+              disabled={isPresenting}
+            />
+            <div className="flex items-center gap-2">
+              <input 
+                type="text" 
+                value={project.client}
+                onChange={(e) => setProject({...project, client: e.target.value})}
+                className="bg-transparent text-slate-400 text-[10px] leading-tight focus:outline-none focus:border-b border-slate-500 w-1/3 placeholder-slate-600"
+                placeholder="Cliente"
+                disabled={isPresenting}
+              />
+              <span className="text-slate-600 text-[10px]">-</span>
+              <input 
+                type="text" 
+                value={project.phone || ''}
+                onChange={(e) => setProject({...project, phone: e.target.value})}
+                className="bg-transparent text-slate-400 text-[10px] leading-tight focus:outline-none focus:border-b border-slate-500 w-1/3 placeholder-slate-600"
+                placeholder="Celular (Ej. 999 999 999)"
+                disabled={isPresenting}
+              />
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mt-2 md:mt-0 ml-auto">
           {!isPresenting ? (
             <>
+              <button 
+                onClick={handleWhatsApp}
+                className="px-3 py-1.5 text-xs font-semibold bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white border border-green-500/20 rounded-md transition-colors flex items-center gap-2"
+                title="Descargar plano y abrir WhatsApp"
+              >
+                <MessageCircle size={14}/> Enviar WA
+              </button>
+              
               <button 
                 onClick={saveToCloud}
                 disabled={isSaving || !user}
                 className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors flex items-center gap-2 disabled:opacity-50"
               >
-                {isSaving ? <Loader2 size={14} className="animate-spin" /> : (saveSuccess ? <CheckCircle2 size={14} className="text-emerald-400"/> : <Save size={14}/>)}
-                {isSaving ? 'Guardando...' : (saveSuccess ? 'Guardado' : 'Guardar Nube')}
+                {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14}/>}
+                Guardar Nube
               </button>
+              
               <button 
                 onClick={() => window.print()}
                 className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors flex items-center gap-2"
               >
-                <Download size={14}/> PDF / Exportar
+                <Download size={14}/> PDF / Imprimir
               </button>
               <div className="w-px h-6 bg-slate-700 mx-1"></div>
               <button 
                 onClick={() => { setIsPresenting(true); setSelectedId(null); }}
                 className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-md shadow-lg shadow-blue-900/20 transition-all flex items-center gap-2"
               >
-                <Presentation size={14}/> Presentar al Cliente
+                <Presentation size={14}/> Presentar
               </button>
             </>
           ) : (
@@ -809,9 +917,10 @@ export default function App() {
         {!isPresenting && renderPropertyPanel()}
       </div>
 
+      {/* MODAL NUEVO PROYECTO */}
       <Modal isOpen={showNewProjectModal} title="Crear Nuevo Plano" onClose={() => setShowNewProjectModal(false)}>
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">Nombre del Proyecto</label>
               <input 
@@ -819,17 +928,27 @@ export default function App() {
                 value={newProjData.name} 
                 onChange={e => setNewProjData({...newProjData, name: e.target.value})} 
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" 
-                placeholder="Ej: Local Comercial"
               />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Nombre del Cliente</label>
+              <label className="block text-sm text-slate-400 mb-1">Cliente</label>
               <input 
                 type="text" 
                 value={newProjData.client} 
                 onChange={e => setNewProjData({...newProjData, client: e.target.value})} 
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" 
-                placeholder="Ej: Juan Pérez"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Celular</label>
+              <input 
+                type="text" 
+                value={newProjData.phone} 
+                onChange={e => setNewProjData({...newProjData, phone: e.target.value})} 
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" 
+                placeholder="Opcional"
               />
             </div>
           </div>
@@ -854,7 +973,7 @@ export default function App() {
             </div>
           </div>
           <p className="text-xs text-slate-500 bg-slate-900/50 p-2 rounded border border-slate-800">
-            Si introduces medidas (ej: 20x8), se dibujará el perímetro base automáticamente. Si dejas ambas en 0, el lienzo estará completamente vacío.
+            Si introduces medidas, se dibujará el perímetro base automáticamente.
           </p>
           <div className="flex gap-3 mt-6">
             <button onClick={() => setShowNewProjectModal(false)} className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium transition-colors">Cancelar</button>
@@ -863,6 +982,7 @@ export default function App() {
         </div>
       </Modal>
 
+      {/* MODAL MIS PROYECTOS */}
       <Modal isOpen={showProjectsModal} title="Mis Proyectos Guardados" onClose={() => setShowProjectsModal(false)}>
         <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
           {!user ? (
@@ -874,7 +994,7 @@ export default function App() {
               <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex items-center justify-between hover:border-slate-600 transition-colors">
                 <div className="flex-1 min-w-0 pr-4">
                   <h4 className="font-semibold text-white text-sm truncate">{p.name}</h4>
-                  <p className="text-xs text-slate-400 truncate">{p.client} • {p.cameras?.length || 0} Cámaras</p>
+                  <p className="text-xs text-slate-400 truncate">{p.client} {p.phone ? `• Cel: ${p.phone}` : ''} • {p.cameras?.length || 0} Cams</p>
                   {p.updatedAt && <p className="text-[10px] text-slate-500 mt-1">Última mod: {new Date(p.updatedAt).toLocaleDateString()}</p>}
                 </div>
                 <div className="flex gap-2 shrink-0">
@@ -891,6 +1011,16 @@ export default function App() {
         </div>
       </Modal>
 
+      {/* SISTEMA DE NOTIFICACIONES (TOAST) */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up">
+          <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-2xl border ${toast.type === 'error' ? 'bg-red-950/90 border-red-900 text-red-200' : 'bg-slate-800/90 border-slate-700 text-emerald-300'}`}>
+            {toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
+            <span className="text-sm font-medium">{toast.message}</span>
+          </div>
+        </div>
+      )}
+
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
           body { background: white; }
@@ -903,6 +1033,8 @@ export default function App() {
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        .animate-fade-in-up { animation: fadeInUp 0.3s ease-out forwards; }
       `}} />
     </div>
   );
