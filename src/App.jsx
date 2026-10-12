@@ -3,7 +3,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getFirestore, doc, setDoc, collection, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { 
-  Camera, Square, MousePointer2, Move, Video, Shield, 
+  Camera, Square, MousePointer2, Move, Video, 
   Settings2, Download, Presentation, Save, 
   Trash2, X, AlertCircle, CheckCircle2,
   Upload, FilePlus, FolderOpen, Loader2, MessageCircle, Pencil
@@ -158,6 +158,7 @@ export default function App() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
   const svgRef = useRef(null);
+  const logoUrl = "https://i.imgur.com/VkOs5HF.png"; // LOGO DEL USUARIO
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -244,36 +245,99 @@ export default function App() {
       const ctx = canvas.getContext("2d");
       
       const rect = svgElement.getBoundingClientRect();
-      const scale = 2; // Alta resolución
+      const scale = 2; 
+      const footerH = 120; // Espacio extra para el pie de página inteligente
+
       canvas.width = rect.width * scale;
-      canvas.height = rect.height * scale;
+      canvas.height = (rect.height + footerH) * scale;
 
       const img = new Image();
       const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
       const url = URL.createObjectURL(svgBlob);
 
       img.onload = () => {
+        // Fondo del plano
         ctx.fillStyle = '#020617'; 
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.scale(scale, scale);
-        ctx.drawImage(img, 0, 0);
         
-        // 1. Descarga automática
-        const a = document.createElement("a");
-        a.download = `Plano_${project.name.replace(/\s+/g, '_')}.png`;
-        a.href = canvas.toDataURL("image/png");
-        a.click();
-        URL.revokeObjectURL(url); 
+        // Dibujar SVG
+        ctx.drawImage(img, 0, 0, rect.width * scale, rect.height * scale);
+        
+        // Dibujar Pie de página
+        const footerY = rect.height * scale;
+        ctx.fillStyle = '#0f172a'; // slate-900
+        ctx.fillRect(0, footerY, canvas.width, footerH * scale);
+        
+        ctx.fillStyle = '#1e293b'; // slate-800 border
+        ctx.fillRect(0, footerY, canvas.width, 2 * scale);
 
-        // 2. Abrir WhatsApp con mensaje
-        const msg = `Hola ${project.client || ''}, te envío adjunto el diseño del plano con la distribución de cámaras propuesta para: ${project.name}. (Por favor, envíame la imagen que se acaba de descargar para revisarlo juntos).`;
-        const waUrl = `https://wa.me/51${project.phone.replace(/\s+/g, '')}?text=${encodeURIComponent(msg)}`;
+        // --- CALCULAR ÁREA INTELIGENTE ---
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        project.walls.forEach(w => {
+            minX = Math.min(minX, w.x1, w.x2);
+            minY = Math.min(minY, w.y1, w.y2);
+            maxX = Math.max(maxX, w.x1, w.x2);
+            maxY = Math.max(maxY, w.y1, w.y2);
+        });
         
-        setTimeout(() => {
-          window.open(waUrl, '_blank');
-        }, 800); 
+        let areaText = "en las instalaciones";
+        if (minX !== Infinity && maxX > minX) {
+            const w = (maxX - minX) / project.scale;
+            const h = (maxY - minY) / project.scale;
+            areaText = `cubriendo un perímetro aproximado de ${w.toFixed(1)}m de largo por ${h.toFixed(1)}m de ancho`;
+        }
         
-        showToast('Descargando foto y abriendo WhatsApp...');
+        const smartText = `Resumen Técnico: Se ha diseñado la distribución de ${project.cameras.length} cámaras de seguridad ${areaText}.`;
+
+        // Textos del reporte
+        const padding = 20 * scale;
+        let currentY = footerY + (20 * scale);
+        
+        ctx.fillStyle = '#f8fafc'; // white
+        ctx.font = `bold ${18 * scale}px sans-serif`;
+        ctx.fillText(`Proyecto: ${project.name || 'Diseño de Seguridad'}`, padding, currentY);
+        currentY += (26 * scale);
+
+        ctx.fillStyle = '#cbd5e1'; // slate-300
+        ctx.font = `normal ${15 * scale}px sans-serif`;
+        ctx.fillText(`Cliente: ${project.client || 'No especificado'}`, padding, currentY);
+        currentY += (26 * scale);
+
+        ctx.fillStyle = '#94a3b8'; // slate-400
+        ctx.font = `italic ${13 * scale}px sans-serif`;
+        ctx.fillText(smartText, padding, currentY);
+
+        // Función final que descarga y abre WA
+        const finalizeDownload = () => {
+          const a = document.createElement("a");
+          a.download = `Plano_${project.name.replace(/\s+/g, '_')}.png`;
+          a.href = canvas.toDataURL("image/png");
+          a.click();
+          URL.revokeObjectURL(url); 
+
+          const msg = `Hola ${project.client || ''}, te envío adjunto el diseño técnico del plano con la distribución de cámaras propuesta para: ${project.name}. (Por favor, envíame la imagen que se acaba de descargar para revisarlo juntos).`;
+          const waUrl = `https://wa.me/51${project.phone.replace(/\s+/g, '')}?text=${encodeURIComponent(msg)}`;
+          
+          setTimeout(() => { window.open(waUrl, '_blank'); }, 800); 
+          showToast('Generando reporte y abriendo WhatsApp...');
+        };
+
+        // Cargar el Logo en el Canvas
+        const logoImg = new Image();
+        logoImg.crossOrigin = "anonymous";
+        logoImg.onload = () => {
+           const logoHeight = 70 * scale;
+           const logoWidth = (logoImg.width / logoImg.height) * logoHeight;
+           const logoX = canvas.width - padding - logoWidth;
+           const logoY = footerY + ((footerH * scale - logoHeight) / 2);
+           ctx.drawImage(logoImg, logoX, logoY, logoWidth, logoHeight);
+           finalizeDownload();
+        };
+        logoImg.onerror = () => {
+           // Si falla por CORS u otro error, se descarga igual sin el logo
+           finalizeDownload();
+        };
+        logoImg.src = logoUrl;
       };
       
       img.src = url;
@@ -286,11 +350,9 @@ export default function App() {
   const getMouseCoords = (e) => {
     if (!svgRef.current) return { x: 0, y: 0 };
     const rect = svgRef.current.getBoundingClientRect();
-    // Coordenadas puras relativas al contenedor
     const rawX = e.clientX - rect.left;
     const rawY = e.clientY - rect.top;
     
-    // Convertimos tomando en cuenta el zoom y la posición de la cámara (pan)
     return {
       x: (rawX - view.x) / view.zoom,
       y: (rawY - view.y) / view.zoom
@@ -301,7 +363,6 @@ export default function App() {
     if (isPresenting) return;
     const coords = getMouseCoords(e);
     
-    // Click de la rueda o modo paneo
     if (e.button === 1 || mode === 'pan') {
       setIsDragging('pan');
       setDragOffset({ x: e.clientX, y: e.clientY });
@@ -309,7 +370,6 @@ export default function App() {
     }
 
     if (mode === 'select') {
-      // Si haces click en el vacío se deselecciona todo
       if (e.target.tagName === 'svg' || e.target.tagName === 'image') {
         setSelectedId(null);
       }
@@ -365,7 +425,6 @@ export default function App() {
     } else if (isDragging === 'object' && selectedId) {
       const camIdx = project.cameras.findIndex(c => c.id === selectedId);
       if (camIdx > -1) {
-        // Mover Cámara
         const newCams = [...project.cameras];
         newCams[camIdx] = { 
           ...newCams[camIdx], 
@@ -375,7 +434,6 @@ export default function App() {
         setProject({ ...project, cameras: newCams });
       }
     } else if (isDragging === 'wall' && selectedId) {
-      // Mover Muro
       const wallIdx = project.walls.findIndex(w => w.id === selectedId);
       if (wallIdx > -1) {
          const dx = coords.x - dragOffset.x;
@@ -389,7 +447,7 @@ export default function App() {
            y2: newWalls[wallIdx].y2 + dy
          };
          setProject({ ...project, walls: newWalls });
-         setDragOffset(coords); // Actualizar para el siguiente movimiento continuo
+         setDragOffset(coords); 
       }
     }
   };
@@ -416,7 +474,6 @@ export default function App() {
     const delta = -e.deltaY * zoomSensitivity;
     const newZoom = Math.max(0.1, Math.min(5, view.zoom * (1 + delta)));
     
-    // Lógica para hacer zoom hacia donde está apuntando el mouse
     const rect = svgRef.current.getBoundingClientRect();
     const rawX = e.clientX - rect.left;
     const rawY = e.clientY - rect.top;
@@ -729,7 +786,6 @@ export default function App() {
                <image href={project.bgImage} x="0" y="0" width="1000" opacity="0.6" preserveAspectRatio="xMidYMid slice" className="pointer-events-none" />
             )}
 
-            {/* Abanicos de cámaras (Visión) */}
             {project.cameras.map(cam => {
               const polygonPoints = calculateFOVPolygon(cam, project.walls, project.scale);
               const isSelected = selectedId === cam.id;
@@ -747,7 +803,6 @@ export default function App() {
               );
             })}
 
-            {/* Muros */}
             {project.walls.map(wall => {
               const len = distance({x: wall.x1, y: wall.y1}, {x: wall.x2, y: wall.y2}) / project.scale;
               const midX = (wall.x1 + wall.x2) / 2;
@@ -760,7 +815,7 @@ export default function App() {
                   <line 
                     x1={wall.x1} y1={wall.y1} x2={wall.x2} y2={wall.y2}
                     stroke="#64748b" 
-                    strokeWidth={selectedId === wall.id ? "6" : "4"}
+                    strokeWidth={selectedId === wall.id ? "4" : "2"}
                     strokeLinecap="round"
                     className="cursor-pointer hover:stroke-slate-400 transition-colors"
                     onPointerDown={(e) => { 
@@ -768,13 +823,13 @@ export default function App() {
                       e.stopPropagation(); 
                       setSelectedId(wall.id);
                       setIsDragging('wall');
-                      setDragOffset(getMouseCoords(e)); // Punto de anclaje inicial exacto
+                      setDragOffset(getMouseCoords(e)); 
                     }}
                   />
                   <text 
-                    x={midX} y={midY - 8} 
+                    x={midX} y={midY - 5} 
                     fill={selectedId === wall.id ? "#60a5fa" : "#94a3b8"} 
-                    fontSize="12" 
+                    fontSize="9" 
                     fontFamily="monospace"
                     fontWeight="bold"
                     textAnchor="middle"
@@ -787,17 +842,16 @@ export default function App() {
               );
             })}
 
-            {/* Muro siendo dibujado */}
             {mode === 'draw_wall' && drawStart && (
                <g>
                  <line 
                    x1={drawStart.x} y1={drawStart.y} x2={mousePos.x} y2={mousePos.y}
-                   stroke="#3b82f6" strokeWidth="4" strokeDasharray="6 6"
+                   stroke="#3b82f6" strokeWidth="2" strokeDasharray="6 6"
                  />
                  <text 
-                    x={(drawStart.x + mousePos.x)/2} y={(drawStart.y + mousePos.y)/2 - 12} 
+                    x={(drawStart.x + mousePos.x)/2} y={(drawStart.y + mousePos.y)/2 - 8} 
                     fill="#60a5fa" 
-                    fontSize="16" 
+                    fontSize="11" 
                     fontWeight="bold"
                     fontFamily="monospace"
                     textAnchor="middle"
@@ -808,7 +862,6 @@ export default function App() {
                </g>
             )}
 
-            {/* Componentes de cámara */}
             {project.cameras.map(cam => {
               const isSelected = selectedId === cam.id;
               return (
@@ -821,7 +874,6 @@ export default function App() {
                     e.stopPropagation();
                     setSelectedId(cam.id);
                     setIsDragging('object');
-                    // Punto de arrastre en relación al centro de la cámara
                     const coords = getMouseCoords(e);
                     setDragOffset({ x: coords.x - cam.x, y: coords.y - cam.y });
                   }}
@@ -863,13 +915,16 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-slate-950 font-sans overflow-hidden text-slate-200">
       
-      {/* CABECERA (Con inputs en vivo y botón WA) */}
+      {/* CABECERA CON EDICIÓN EN VIVO Y LOGO */}
       <header className="h-auto min-h-14 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-2 shrink-0 z-30">
-        <div className="flex items-start gap-3 w-full md:w-auto">
-          <div className="w-8 h-8 mt-1 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
-            <Shield size={18} className="text-white" />
+        <div className="flex items-start gap-4 w-full md:w-auto">
+          
+          {/* LOGO DE LA EMPRESA */}
+          <div className="h-10 w-24 shrink-0 flex items-center justify-center">
+            <img src={logoUrl} alt="Logo" className="max-h-full max-w-full object-contain" />
           </div>
-          <div className="flex flex-col gap-1 w-full max-w-sm">
+
+          <div className="flex flex-col gap-1 w-full max-w-md">
             <input 
               type="text" 
               value={project.name}
@@ -883,7 +938,7 @@ export default function App() {
                 type="text" 
                 value={project.client}
                 onChange={(e) => setProject({...project, client: e.target.value})}
-                className="bg-transparent text-slate-400 text-[10px] leading-tight focus:outline-none focus:border-b border-slate-500 w-1/3 placeholder-slate-600"
+                className="bg-transparent text-slate-400 text-[11px] leading-tight focus:outline-none focus:border-b border-slate-500 w-1/3 placeholder-slate-600"
                 placeholder="Cliente"
                 disabled={isPresenting}
               />
@@ -892,7 +947,7 @@ export default function App() {
                 type="text" 
                 value={project.phone || ''}
                 onChange={(e) => setProject({...project, phone: e.target.value})}
-                className="bg-transparent text-slate-400 text-[10px] leading-tight focus:outline-none focus:border-b border-slate-500 w-1/3 placeholder-slate-600"
+                className="bg-transparent text-slate-400 text-[11px] leading-tight focus:outline-none focus:border-b border-slate-500 w-1/3 placeholder-slate-600"
                 placeholder="Celular (Ej. 999 999 999)"
                 disabled={isPresenting}
               />
@@ -903,10 +958,10 @@ export default function App() {
         <div className="flex items-center gap-2 mt-2 md:mt-0 ml-auto">
           {!isPresenting ? (
             <>
-              {/* BOTÓN WHATSAPP NUEVO */}
+              {/* BOTÓN WHATSAPP EXPORTADOR INTELIGENTE */}
               <button 
                 onClick={handleWhatsApp}
-                className="px-3 py-1.5 text-xs font-semibold bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white border border-green-500/20 rounded-md transition-colors flex items-center gap-2"
+                className="px-3 py-1.5 text-xs font-semibold bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white border border-green-500/20 rounded-md transition-colors flex items-center gap-2 shadow-lg shadow-green-900/10"
                 title="Descargar plano y abrir WhatsApp"
               >
                 <MessageCircle size={14}/> Enviar WA
@@ -952,7 +1007,6 @@ export default function App() {
         {!isPresenting && renderPropertyPanel()}
       </div>
 
-      {/* MODAL NUEVO PROYECTO */}
       <Modal isOpen={showNewProjectModal} title="Crear Nuevo Plano" onClose={() => setShowNewProjectModal(false)}>
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4">
@@ -1017,7 +1071,6 @@ export default function App() {
         </div>
       </Modal>
 
-      {/* MODAL MIS PROYECTOS CON BOTÓN "EDITAR" MEJORADO */}
       <Modal isOpen={showProjectsModal} title="Mis Proyectos Guardados" onClose={() => setShowProjectsModal(false)}>
         <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
           {!user ? (
@@ -1033,7 +1086,6 @@ export default function App() {
                   {p.updatedAt && <p className="text-[10px] text-slate-500 mt-1">Última mod: {new Date(p.updatedAt).toLocaleDateString()}</p>}
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  {/* Botón de Editar con Lápiz */}
                   <button onClick={() => loadProject(p)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-500 rounded-md transition-colors" title="Editar Plano">
                     <Pencil size={14} /> <span className="text-xs font-semibold">Editar</span>
                   </button>
@@ -1047,7 +1099,6 @@ export default function App() {
         </div>
       </Modal>
 
-      {/* SISTEMA DE NOTIFICACIONES (TOAST) */}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up pointer-events-none">
           <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-2xl border ${toast.type === 'error' ? 'bg-red-950/90 border-red-900 text-red-200' : 'bg-slate-800/90 border-slate-700 text-emerald-300'}`}>
