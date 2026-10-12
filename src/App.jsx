@@ -226,124 +226,200 @@ export default function App() {
     }
   };
 
-  const handleWhatsApp = () => {
-    if (!project.phone || project.phone.length < 5) {
-      showToast('Por favor, ingresa un celular válido en la cabecera.', 'error');
-      return;
-    }
+  // --- MOTOR DE EXPORTACIÓN Y RECORTE INTELIGENTE ---
+  const generateExportCanvas = () => {
+    return new Promise((resolve, reject) => {
+      const svgElement = svgRef.current;
+      if (!svgElement) return reject("No SVG");
 
-    const svgElement = svgRef.current;
-    if (!svgElement) return;
+      // 1. Escanear límites reales de los muros y cámaras (Encontrar la "caja perfecta")
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      
+      project.walls.forEach(w => {
+          minX = Math.min(minX, w.x1, w.x2);
+          minY = Math.min(minY, w.y1, w.y2);
+          maxX = Math.max(maxX, w.x1, w.x2);
+          maxY = Math.max(maxY, w.y1, w.y2);
+      });
+      
+      project.cameras.forEach(c => {
+          const r = c.maxDist * project.scale;
+          minX = Math.min(minX, c.x - r);
+          minY = Math.min(minY, c.y - r);
+          maxX = Math.max(maxX, c.x + r);
+          maxY = Math.max(maxY, c.y + r);
+      });
 
-    try {
-      if (!svgElement.getAttribute("xmlns")) {
-        svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      if (project.bgImage) {
+          minX = Math.min(minX, 0);
+          minY = Math.min(minY, 0);
+          maxX = Math.max(maxX, 1000); 
+          maxY = Math.max(maxY, 800); 
       }
 
-      const svgData = new XMLSerializer().serializeToString(svgElement);
+      // Si el lienzo está vacío, poner medidas por defecto
+      if (minX === Infinity) {
+          minX = 0; minY = 0; maxX = 800; maxY = 600;
+      }
+
+      // Medidas exactas sin el padding para la leyenda inteligente
+      const exactW = (maxX - minX) / project.scale;
+      const exactH = (maxY - minY) / project.scale;
+
+      // 2. Darle margen (padding) al recuadro
+      const padding = project.scale * 2; // 2 metros de margen visual
+      minX -= padding;
+      minY -= padding;
+      maxX += padding;
+      maxY += padding;
+
+      const contentW = maxX - minX;
+      const contentH = maxY - minY;
+
+      // 3. Establecer alta resolución (Full HD mínimo)
+      const targetWidth = Math.max(1920, contentW * 2);
+      const ratio = targetWidth / contentW;
+      const targetHeight = contentH * ratio;
+      const footerH = 160;
+
       const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight + footerH;
       const ctx = canvas.getContext("2d");
+
+      // 4. Clonar el SVG y eliminar los efectos de Zoom/Paneo de la pantalla del usuario
+      const cloneSvg = svgElement.cloneNode(true);
+      if (!cloneSvg.getAttribute("xmlns")) {
+        cloneSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      }
       
-      const rect = svgElement.getBoundingClientRect();
-      const scale = 2; 
-      const footerH = 120; // Espacio extra para el pie de página inteligente
+      const rootGroup = cloneSvg.querySelector('g');
+      if (rootGroup) {
+          rootGroup.removeAttribute('transform'); 
+      }
 
-      canvas.width = rect.width * scale;
-      canvas.height = (rect.height + footerH) * scale;
+      // Ajustar el SVG al recuadro perfecto
+      cloneSvg.setAttribute('viewBox', `${minX} ${minY} ${contentW} ${contentH}`);
+      cloneSvg.setAttribute('width', targetWidth);
+      cloneSvg.setAttribute('height', targetHeight);
 
+      // 5. Dibujar en el Canvas
+      const svgData = new XMLSerializer().serializeToString(cloneSvg);
       const img = new Image();
       const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
       const url = URL.createObjectURL(svgBlob);
 
       img.onload = () => {
-        // Fondo del plano
-        ctx.fillStyle = '#020617'; 
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Dibujar SVG
-        ctx.drawImage(img, 0, 0, rect.width * scale, rect.height * scale);
-        
-        // Dibujar Pie de página
-        const footerY = rect.height * scale;
-        ctx.fillStyle = '#0f172a'; // slate-900
-        ctx.fillRect(0, footerY, canvas.width, footerH * scale);
-        
-        ctx.fillStyle = '#1e293b'; // slate-800 border
-        ctx.fillRect(0, footerY, canvas.width, 2 * scale);
-
-        // --- CALCULAR ÁREA INTELIGENTE ---
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        project.walls.forEach(w => {
-            minX = Math.min(minX, w.x1, w.x2);
-            minY = Math.min(minY, w.y1, w.y2);
-            maxX = Math.max(maxX, w.x1, w.x2);
-            maxY = Math.max(maxY, w.y1, w.y2);
-        });
-        
-        let areaText = "en las instalaciones";
-        if (minX !== Infinity && maxX > minX) {
-            const w = (maxX - minX) / project.scale;
-            const h = (maxY - minY) / project.scale;
-            areaText = `cubriendo un perímetro aproximado de ${w.toFixed(1)}m de largo por ${h.toFixed(1)}m de ancho`;
-        }
-        
-        const smartText = `Resumen Técnico: Se ha diseñado la distribución de ${project.cameras.length} cámaras de seguridad ${areaText}.`;
-
-        // Textos del reporte
-        const padding = 20 * scale;
-        let currentY = footerY + (20 * scale);
-        
-        ctx.fillStyle = '#f8fafc'; // white
-        ctx.font = `bold ${18 * scale}px sans-serif`;
-        ctx.fillText(`Proyecto: ${project.name || 'Diseño de Seguridad'}`, padding, currentY);
-        currentY += (26 * scale);
-
-        ctx.fillStyle = '#cbd5e1'; // slate-300
-        ctx.font = `normal ${15 * scale}px sans-serif`;
-        ctx.fillText(`Cliente: ${project.client || 'No especificado'}`, padding, currentY);
-        currentY += (26 * scale);
-
-        ctx.fillStyle = '#94a3b8'; // slate-400
-        ctx.font = `italic ${13 * scale}px sans-serif`;
-        ctx.fillText(smartText, padding, currentY);
-
-        // Función final que descarga y abre WA
-        const finalizeDownload = () => {
-          const a = document.createElement("a");
-          a.download = `Plano_${project.name.replace(/\s+/g, '_')}.png`;
-          a.href = canvas.toDataURL("image/png");
-          a.click();
-          URL.revokeObjectURL(url); 
-
-          const msg = `Hola ${project.client || ''}, te envío adjunto el diseño técnico del plano con la distribución de cámaras propuesta para: ${project.name}. (Por favor, envíame la imagen que se acaba de descargar para revisarlo juntos).`;
-          const waUrl = `https://wa.me/51${project.phone.replace(/\s+/g, '')}?text=${encodeURIComponent(msg)}`;
+          ctx.fillStyle = '#020617'; 
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
           
-          setTimeout(() => { window.open(waUrl, '_blank'); }, 800); 
-          showToast('Generando reporte y abriendo WhatsApp...');
-        };
+          ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+          
+          // Pie de página profesional
+          const footerY = targetHeight;
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(0, footerY, canvas.width, footerH);
+          ctx.fillStyle = '#1e293b'; 
+          ctx.fillRect(0, footerY, canvas.width, 4);
 
-        // Cargar el Logo en el Canvas
-        const logoImg = new Image();
-        logoImg.crossOrigin = "anonymous";
-        logoImg.onload = () => {
-           const logoHeight = 70 * scale;
-           const logoWidth = (logoImg.width / logoImg.height) * logoHeight;
-           const logoX = canvas.width - padding - logoWidth;
-           const logoY = footerY + ((footerH * scale - logoHeight) / 2);
-           ctx.drawImage(logoImg, logoX, logoY, logoWidth, logoHeight);
-           finalizeDownload();
-        };
-        logoImg.onerror = () => {
-           // Si falla por CORS u otro error, se descarga igual sin el logo
-           finalizeDownload();
-        };
-        logoImg.src = logoUrl;
+          let areaText = "en las instalaciones";
+          if (exactW > 0 && exactH > 0) {
+              areaText = `cubriendo un perímetro aproximado de ${exactW.toFixed(1)}m de largo por ${exactH.toFixed(1)}m de ancho`;
+          }
+          const smartText = `Resumen Técnico: Se ha diseñado la distribución de ${project.cameras.length} cámaras de seguridad ${areaText}.`;
+
+          const pad = 40;
+          let currentY = footerY + 50;
+          
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = `bold 32px sans-serif`;
+          ctx.fillText(`Proyecto: ${project.name || 'Diseño de Seguridad'}`, pad, currentY);
+          currentY += 40;
+
+          ctx.fillStyle = '#cbd5e1';
+          ctx.font = `normal 24px sans-serif`;
+          ctx.fillText(`Cliente: ${project.client || 'No especificado'}`, pad, currentY);
+          currentY += 40;
+
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = `italic 22px sans-serif`;
+          ctx.fillText(smartText, pad, currentY);
+
+          const finalize = () => resolve({ canvas, url });
+
+          // Logo corporativo
+          const logoImg = new Image();
+          logoImg.crossOrigin = "anonymous";
+          logoImg.onload = () => {
+             const logoHeight = 100;
+             const logoWidth = (logoImg.width / logoImg.height) * logoHeight;
+             const logoX = canvas.width - pad - logoWidth;
+             const logoY = footerY + ((footerH - logoHeight) / 2);
+             ctx.drawImage(logoImg, logoX, logoY, logoWidth, logoHeight);
+             finalize();
+          };
+          logoImg.onerror = finalize;
+          logoImg.src = logoUrl;
       };
-      
+      img.onerror = (e) => reject(e);
       img.src = url;
-    } catch (error) {
-      console.error(error);
+    });
+  };
+
+  const handleWhatsApp = async () => {
+    if (!project.phone || project.phone.length < 5) {
+      showToast('Por favor, ingresa un celular válido en la cabecera.', 'error');
+      return;
+    }
+    showToast('Generando plano encuadrado en alta resolución...');
+    try {
+      const { canvas, url } = await generateExportCanvas();
+      
+      const a = document.createElement("a");
+      a.download = `Plano_${project.name.replace(/\s+/g, '_')}.png`;
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+      URL.revokeObjectURL(url); 
+
+      const msg = `Hola ${project.client || ''}, te envío adjunto el diseño técnico del plano con la distribución de cámaras propuesta para: ${project.name}. (Por favor, envíame la imagen que se acaba de descargar para revisarlo juntos).`;
+      const waUrl = `https://wa.me/51${project.phone.replace(/\s+/g, '')}?text=${encodeURIComponent(msg)}`;
+      setTimeout(() => { window.open(waUrl, '_blank'); }, 800); 
+    } catch (err) {
       showToast('Hubo un error al generar la imagen', 'error');
+      console.error(err);
+    }
+  };
+
+  const handlePrint = async () => {
+    showToast('Preparando documento de impresión perfecto...');
+    try {
+      const { canvas, url } = await generateExportCanvas();
+      URL.revokeObjectURL(url);
+      
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <html>
+            <head>
+              <title>Imprimir Plano - ${project.name}</title>
+              <style>
+                @page { size: landscape; margin: 0; }
+                body { margin: 0; display: flex; justify-content: center; align-items: center; background: #fff; height: 100vh; }
+                img { max-width: 100%; max-height: 100vh; object-fit: contain; }
+              </style>
+            </head>
+            <body>
+              <img src="${canvas.toDataURL("image/png")}" onload="window.print();" />
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+      } else {
+          showToast('El navegador bloqueó la ventana emergente', 'error');
+      }
+    } catch (err) {
+      showToast('Error al preparar impresión', 'error');
+      console.error(err);
     }
   };
 
@@ -919,7 +995,6 @@ export default function App() {
       <header className="h-auto min-h-14 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-2 shrink-0 z-30">
         <div className="flex items-start gap-4 w-full md:w-auto">
           
-          {/* LOGO DE LA EMPRESA */}
           <div className="h-10 w-24 shrink-0 flex items-center justify-center">
             <img src={logoUrl} alt="Logo" className="max-h-full max-w-full object-contain" />
           </div>
@@ -962,7 +1037,7 @@ export default function App() {
               <button 
                 onClick={handleWhatsApp}
                 className="px-3 py-1.5 text-xs font-semibold bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white border border-green-500/20 rounded-md transition-colors flex items-center gap-2 shadow-lg shadow-green-900/10"
-                title="Descargar plano y abrir WhatsApp"
+                title="Descargar plano en alta resolución y abrir WhatsApp"
               >
                 <MessageCircle size={14}/> Enviar WA
               </button>
@@ -977,10 +1052,10 @@ export default function App() {
               </button>
               
               <button 
-                onClick={() => window.print()}
+                onClick={handlePrint}
                 className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors flex items-center gap-2"
               >
-                <Download size={14}/> Imprimir
+                <Download size={14}/> PDF / Imprimir
               </button>
               <div className="w-px h-6 bg-slate-700 mx-1"></div>
               <button 
@@ -1109,14 +1184,6 @@ export default function App() {
       )}
 
       <style dangerouslySetInnerHTML={{__html: `
-        @media print {
-          body { background: white; }
-          header, .w-16, .w-80 { display: none !important; }
-          .flex-1 { background: white !important; }
-          svg { filter: drop-shadow(0 0 2px rgba(0,0,0,0.1)); }
-          text { fill: black !important; }
-          polygon { fill-opacity: 0.2 !important; }
-        }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
