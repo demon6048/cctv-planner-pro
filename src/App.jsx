@@ -6,7 +6,7 @@ import {
   Camera, Square, MousePointer2, Move, Video, Shield, 
   Settings2, Download, Presentation, Save, 
   Trash2, X, AlertCircle, CheckCircle2,
-  Upload, FilePlus, FolderOpen, Loader2, MessageCircle
+  Upload, FilePlus, FolderOpen, Loader2, MessageCircle, Pencil
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -23,7 +23,6 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 const appId = 'cctv-planner-pro';
 
-// --- UTILIDADES MATEMÁTICAS Y GEOMETRÍA ---
 const toRad = (deg) => deg * (Math.PI / 180);
 const toDeg = (rad) => rad * (180 / Math.PI);
 
@@ -151,7 +150,6 @@ export default function App() {
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
-  // Nuevo sistema de notificaciones (Toast)
   const [toast, setToast] = useState(null);
 
   const [isDragging, setIsDragging] = useState(false);
@@ -212,16 +210,18 @@ export default function App() {
     setView({ x: 0, y: 0, zoom: 1 });
     setSelectedId(null);
     setMode('select');
-    showToast('Proyecto cargado correctamente');
+    showToast('Proyecto cargado para edición');
   };
 
   const deleteProject = async (id) => {
     if (!user) return;
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'projects', id));
-      showToast('Proyecto eliminado');
-    } catch(e) {
-      console.error(e);
+    if(window.confirm("¿Seguro que deseas eliminar este plano permanentemente?")) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'projects', id));
+        showToast('Proyecto eliminado');
+      } catch(e) {
+        console.error(e);
+      }
     }
   };
 
@@ -235,7 +235,6 @@ export default function App() {
     if (!svgElement) return;
 
     try {
-      // Nos aseguramos que el SVG sea serializable
       if (!svgElement.getAttribute("xmlns")) {
         svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
       }
@@ -245,7 +244,7 @@ export default function App() {
       const ctx = canvas.getContext("2d");
       
       const rect = svgElement.getBoundingClientRect();
-      const scale = 2; // Doble resolución para que se vea nítido
+      const scale = 2; // Alta resolución
       canvas.width = rect.width * scale;
       canvas.height = rect.height * scale;
 
@@ -254,28 +253,25 @@ export default function App() {
       const url = URL.createObjectURL(svgBlob);
 
       img.onload = () => {
-        // Fondo oscuro para que coincida con el tema
         ctx.fillStyle = '#020617'; 
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
         ctx.scale(scale, scale);
         ctx.drawImage(img, 0, 0);
         
-        // 1. Descargar la imagen
+        // 1. Descarga automática
         const a = document.createElement("a");
         a.download = `Plano_${project.name.replace(/\s+/g, '_')}.png`;
         a.href = canvas.toDataURL("image/png");
         a.click();
-        
         URL.revokeObjectURL(url); 
 
-        // 2. Abrir WhatsApp
+        // 2. Abrir WhatsApp con mensaje
         const msg = `Hola ${project.client || ''}, te envío adjunto el diseño del plano con la distribución de cámaras propuesta para: ${project.name}. (Por favor, envíame la imagen que se acaba de descargar para revisarlo juntos).`;
         const waUrl = `https://wa.me/51${project.phone.replace(/\s+/g, '')}?text=${encodeURIComponent(msg)}`;
         
         setTimeout(() => {
           window.open(waUrl, '_blank');
-        }, 800); // Esperamos a que la descarga inicie
+        }, 800); 
         
         showToast('Descargando foto y abriendo WhatsApp...');
       };
@@ -289,10 +285,15 @@ export default function App() {
 
   const getMouseCoords = (e) => {
     if (!svgRef.current) return { x: 0, y: 0 };
-    const CTM = svgRef.current.getScreenCTM();
+    const rect = svgRef.current.getBoundingClientRect();
+    // Coordenadas puras relativas al contenedor
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+    
+    // Convertimos tomando en cuenta el zoom y la posición de la cámara (pan)
     return {
-      x: (e.clientX - CTM.e) / CTM.a,
-      y: (e.clientY - CTM.f) / CTM.d
+      x: (rawX - view.x) / view.zoom,
+      y: (rawY - view.y) / view.zoom
     };
   };
 
@@ -300,6 +301,7 @@ export default function App() {
     if (isPresenting) return;
     const coords = getMouseCoords(e);
     
+    // Click de la rueda o modo paneo
     if (e.button === 1 || mode === 'pan') {
       setIsDragging('pan');
       setDragOffset({ x: e.clientX, y: e.clientY });
@@ -307,6 +309,7 @@ export default function App() {
     }
 
     if (mode === 'select') {
+      // Si haces click en el vacío se deselecciona todo
       if (e.target.tagName === 'svg' || e.target.tagName === 'image') {
         setSelectedId(null);
       }
@@ -362,6 +365,7 @@ export default function App() {
     } else if (isDragging === 'object' && selectedId) {
       const camIdx = project.cameras.findIndex(c => c.id === selectedId);
       if (camIdx > -1) {
+        // Mover Cámara
         const newCams = [...project.cameras];
         newCams[camIdx] = { 
           ...newCams[camIdx], 
@@ -369,6 +373,23 @@ export default function App() {
           y: coords.y - dragOffset.y 
         };
         setProject({ ...project, cameras: newCams });
+      }
+    } else if (isDragging === 'wall' && selectedId) {
+      // Mover Muro
+      const wallIdx = project.walls.findIndex(w => w.id === selectedId);
+      if (wallIdx > -1) {
+         const dx = coords.x - dragOffset.x;
+         const dy = coords.y - dragOffset.y;
+         const newWalls = [...project.walls];
+         newWalls[wallIdx] = {
+           ...newWalls[wallIdx],
+           x1: newWalls[wallIdx].x1 + dx,
+           y1: newWalls[wallIdx].y1 + dy,
+           x2: newWalls[wallIdx].x2 + dx,
+           y2: newWalls[wallIdx].y2 + dy
+         };
+         setProject({ ...project, walls: newWalls });
+         setDragOffset(coords); // Actualizar para el siguiente movimiento continuo
       }
     }
   };
@@ -395,15 +416,18 @@ export default function App() {
     const delta = -e.deltaY * zoomSensitivity;
     const newZoom = Math.max(0.1, Math.min(5, view.zoom * (1 + delta)));
     
-    const coords = getMouseCoords(e);
-    const dx = (coords.x * view.zoom) - (coords.x * newZoom);
-    const dy = (coords.y * view.zoom) - (coords.y * newZoom);
+    // Lógica para hacer zoom hacia donde está apuntando el mouse
+    const rect = svgRef.current.getBoundingClientRect();
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
 
-    setView(v => ({
-      zoom: newZoom,
-      x: v.x + dx,
-      y: v.y + dy
-    }));
+    const mouseXBeforeZoom = (rawX - view.x) / view.zoom;
+    const mouseYBeforeZoom = (rawY - view.y) / view.zoom;
+
+    const newViewX = rawX - mouseXBeforeZoom * newZoom;
+    const newViewY = rawY - mouseYBeforeZoom * newZoom;
+
+    setView({ zoom: newZoom, x: newViewX, y: newViewY });
   };
 
   const updateCamera = (id, updates) => {
@@ -453,12 +477,10 @@ export default function App() {
     const scale = 20; 
     const wPx = newProjData.width * scale;
     const hPx = newProjData.height * scale;
-    
     const startX = 100;
     const startY = 100;
 
     const newWalls = [];
-    
     if (newProjData.width > 0 && newProjData.height > 0) {
        newWalls.push({ id: `w-${Date.now()}-1`, x1: startX, y1: startY, x2: startX + wPx, y2: startY }); 
        newWalls.push({ id: `w-${Date.now()}-2`, x1: startX + wPx, y1: startY, x2: startX + wPx, y2: startY + hPx }); 
@@ -566,7 +588,7 @@ export default function App() {
       return (
         <div className="w-80 bg-slate-900 border-l border-slate-800 p-6 flex flex-col items-center justify-center text-slate-500 shrink-0 z-20">
           <Settings2 size={48} className="mb-4 opacity-20" />
-          <p className="text-sm text-center">Seleccione una cámara para ver propiedades</p>
+          <p className="text-sm text-center">Seleccione un muro o cámara para ver propiedades</p>
         </div>
       );
     }
@@ -707,6 +729,7 @@ export default function App() {
                <image href={project.bgImage} x="0" y="0" width="1000" opacity="0.6" preserveAspectRatio="xMidYMid slice" className="pointer-events-none" />
             )}
 
+            {/* Abanicos de cámaras (Visión) */}
             {project.cameras.map(cam => {
               const polygonPoints = calculateFOVPolygon(cam, project.walls, project.scale);
               const isSelected = selectedId === cam.id;
@@ -724,6 +747,7 @@ export default function App() {
               );
             })}
 
+            {/* Muros */}
             {project.walls.map(wall => {
               const len = distance({x: wall.x1, y: wall.y1}, {x: wall.x2, y: wall.y2}) / project.scale;
               const midX = (wall.x1 + wall.x2) / 2;
@@ -739,7 +763,13 @@ export default function App() {
                     strokeWidth={selectedId === wall.id ? "6" : "4"}
                     strokeLinecap="round"
                     className="cursor-pointer hover:stroke-slate-400 transition-colors"
-                    onPointerDown={(e) => { e.stopPropagation(); setSelectedId(wall.id); }}
+                    onPointerDown={(e) => { 
+                      if (isPresenting || mode !== 'select') return;
+                      e.stopPropagation(); 
+                      setSelectedId(wall.id);
+                      setIsDragging('wall');
+                      setDragOffset(getMouseCoords(e)); // Punto de anclaje inicial exacto
+                    }}
                   />
                   <text 
                     x={midX} y={midY - 8} 
@@ -757,6 +787,7 @@ export default function App() {
               );
             })}
 
+            {/* Muro siendo dibujado */}
             {mode === 'draw_wall' && drawStart && (
                <g>
                  <line 
@@ -777,19 +808,22 @@ export default function App() {
                </g>
             )}
 
+            {/* Componentes de cámara */}
             {project.cameras.map(cam => {
               const isSelected = selectedId === cam.id;
               return (
                 <g 
                   key={cam.id} 
                   transform={`translate(${cam.x}, ${cam.y})`}
-                  className="cursor-grab active:cursor-grabbing"
+                  className={mode === 'select' ? "cursor-grab active:cursor-grabbing" : ""}
                   onPointerDown={(e) => {
-                    if (isPresenting) return;
+                    if (isPresenting || mode !== 'select') return;
                     e.stopPropagation();
                     setSelectedId(cam.id);
                     setIsDragging('object');
-                    setDragOffset({ x: getMouseCoords(e).x - cam.x, y: getMouseCoords(e).y - cam.y });
+                    // Punto de arrastre en relación al centro de la cámara
+                    const coords = getMouseCoords(e);
+                    setDragOffset({ x: coords.x - cam.x, y: coords.y - cam.y });
                   }}
                 >
                   <circle r="15" fill={cam.color} fillOpacity="0.2" className="pointer-events-none"/>
@@ -829,7 +863,7 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-slate-950 font-sans overflow-hidden text-slate-200">
       
-      {/* CABECERA CON NOMBRES Y WA */}
+      {/* CABECERA (Con inputs en vivo y botón WA) */}
       <header className="h-auto min-h-14 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-2 shrink-0 z-30">
         <div className="flex items-start gap-3 w-full md:w-auto">
           <div className="w-8 h-8 mt-1 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
@@ -869,6 +903,7 @@ export default function App() {
         <div className="flex items-center gap-2 mt-2 md:mt-0 ml-auto">
           {!isPresenting ? (
             <>
+              {/* BOTÓN WHATSAPP NUEVO */}
               <button 
                 onClick={handleWhatsApp}
                 className="px-3 py-1.5 text-xs font-semibold bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white border border-green-500/20 rounded-md transition-colors flex items-center gap-2"
@@ -890,7 +925,7 @@ export default function App() {
                 onClick={() => window.print()}
                 className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors flex items-center gap-2"
               >
-                <Download size={14}/> PDF / Imprimir
+                <Download size={14}/> Imprimir
               </button>
               <div className="w-px h-6 bg-slate-700 mx-1"></div>
               <button 
@@ -982,7 +1017,7 @@ export default function App() {
         </div>
       </Modal>
 
-      {/* MODAL MIS PROYECTOS */}
+      {/* MODAL MIS PROYECTOS CON BOTÓN "EDITAR" MEJORADO */}
       <Modal isOpen={showProjectsModal} title="Mis Proyectos Guardados" onClose={() => setShowProjectsModal(false)}>
         <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
           {!user ? (
@@ -998,10 +1033,11 @@ export default function App() {
                   {p.updatedAt && <p className="text-[10px] text-slate-500 mt-1">Última mod: {new Date(p.updatedAt).toLocaleDateString()}</p>}
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <button onClick={() => loadProject(p)} className="p-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white rounded-md transition-colors" title="Cargar Proyecto">
-                    <FolderOpen size={16} />
+                  {/* Botón de Editar con Lápiz */}
+                  <button onClick={() => loadProject(p)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-500 rounded-md transition-colors" title="Editar Plano">
+                    <Pencil size={14} /> <span className="text-xs font-semibold">Editar</span>
                   </button>
-                  <button onClick={() => deleteProject(p.id)} className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-md transition-colors" title="Eliminar Permanentemente">
+                  <button onClick={() => deleteProject(p.id)} className="p-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-md transition-colors" title="Eliminar Permanentemente">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -1013,7 +1049,7 @@ export default function App() {
 
       {/* SISTEMA DE NOTIFICACIONES (TOAST) */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up pointer-events-none">
           <div className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-2xl border ${toast.type === 'error' ? 'bg-red-950/90 border-red-900 text-red-200' : 'bg-slate-800/90 border-slate-700 text-emerald-300'}`}>
             {toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
             <span className="text-sm font-medium">{toast.message}</span>
