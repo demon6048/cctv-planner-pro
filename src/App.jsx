@@ -31,6 +31,30 @@ const CAMERA_DATABASE = [
     focalLength: 2.8,
     hfov: 96,
     maxDist: 25
+  },
+  {
+    id: 'ezviz-csh9c-2-8mm',
+    label: 'EZVIZ H9c Dual 2K - Lente Fijo (2.8mm)',
+    sensorWidth: 7.71,
+    focalLength: 2.8,
+    hfov: 108,
+    maxDist: 15
+  },
+  {
+    id: 'ezviz-csh9c-6mm',
+    label: 'EZVIZ H9c Dual 2K - Teleobjetivo (6mm)',
+    sensorWidth: 6.25,
+    focalLength: 6.0,
+    hfov: 55,
+    maxDist: 30
+  },
+  {
+    id: 'hik-ds-2ce12kf3tp-dls',
+    label: 'Hikvision Panorámica ColorVu 180°',
+    sensorWidth: 5.1,
+    focalLength: 2.8,
+    hfov: 179,
+    maxDist: 25
   }
 ];
 
