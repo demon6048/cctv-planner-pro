@@ -154,7 +154,6 @@ export default function App() {
   const [isPresenting, setIsPresenting] = useState(false);
   
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
-  // Se actualizan los datos por defecto para el modal de nuevo plano
   const [newProjData, setNewProjData] = useState({ name: '', client: '', phone: '', width: 20, height: 8 });
 
   const [user, setUser] = useState(null);
@@ -170,6 +169,9 @@ export default function App() {
   const [drawStart, setDrawStart] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
+  // NUBE / CONEXION STATE
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
   const svgRef = useRef(null);
   const logoUrl = "https://i.imgur.com/VkOs5HF.png";
 
@@ -179,15 +181,27 @@ export default function App() {
   };
   
   useEffect(() => {
+    // Escuchar estado de conexión de red para indicador visual
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     const initAuth = async () => {
       try {
         await signInAnonymously(auth);
         setUser(auth.currentUser);
       } catch (e) {
         console.error("Auth Error", e);
+        setIsOnline(false);
       }
     };
     initAuth();
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   useEffect(() => {
@@ -197,7 +211,11 @@ export default function App() {
       const projs = [];
       snapshot.forEach(d => projs.push({ id: d.id, ...d.data() }));
       setSavedProjects(projs.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
-    }, (err) => console.error("Firestore error:", err));
+      setIsOnline(true); // Snapshot exitoso asume conexion firebase ok
+    }, (err) => {
+      console.error("Firestore error:", err);
+      setIsOnline(false);
+    });
 
     return () => unsubscribe();
   }, [user]);
@@ -211,9 +229,11 @@ export default function App() {
       await setDoc(docRef, projData);
       setProject(projData);
       showToast('Proyecto guardado en la nube correctamente');
+      setIsOnline(true);
     } catch(e) {
       console.error("Save error", e);
       showToast('Error al guardar en la nube', 'error');
+      setIsOnline(false);
     }
     setIsSaving(false);
   };
@@ -382,6 +402,7 @@ export default function App() {
       a.click();
       URL.revokeObjectURL(url); 
 
+      // Mensaje correcto solicitado
       const msg = `Hola ${project.client || ''}, ¿qué tal? Te envío el diseño preliminar del plano con la distribución de las cámaras para ${project.name}. Por favor revísalo y quedo a la espera de tu aprobación.`;
       const waUrl = `https://wa.me/51${project.phone.replace(/\s+/g, '')}?text=${encodeURIComponent(msg)}`;
       setTimeout(() => { window.open(waUrl, '_blank'); }, 800); 
@@ -720,6 +741,14 @@ export default function App() {
               }
             }} />
           </label>
+        </div>
+
+        {/* Firma de autor KGB Technology v4 */}
+        <div className="hidden md:flex mt-auto pt-6 flex-col items-center justify-center opacity-60 hover:opacity-100 transition-opacity pb-2">
+          <div className="w-12 h-1 bg-slate-800 rounded-full mb-3"></div>
+          <span className="text-[11px] font-black text-slate-400 tracking-widest uppercase">KGB Technology</span>
+          <span className="text-[10px] font-medium text-slate-500 mt-1">Creador: José Vizcarra</span>
+          <span className="text-[9px] text-slate-600 mt-0.5 font-mono">v4.0.0</span>
         </div>
       </div>
     );
@@ -1100,6 +1129,21 @@ export default function App() {
         <div className="flex items-center gap-2 mt-2 md:mt-0 ml-auto">
           {!isPresenting ? (
             <>
+              {/* Indicador de Red/Firebase V4 */}
+              <div 
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md border flex items-center gap-2 ${
+                  isOnline 
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                    : 'bg-red-500/10 text-red-400 border-red-500/20'
+                }`}
+                title={isOnline ? 'Conectado a los servicios en la nube' : 'Sin conexión a internet / Error de nube'}
+              >
+                <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
+                <span className="hidden md:inline">{isOnline ? 'NUBE CONECTADA' : 'ERROR NUBE'}</span>
+              </div>
+
+              <div className="w-px h-6 bg-slate-700 mx-1 hidden md:block"></div>
+
               <button 
                 onClick={handleWhatsApp}
                 className="px-3 py-1.5 text-xs font-semibold bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white border border-green-500/20 rounded-md transition-colors flex items-center gap-2 shadow-lg shadow-green-900/10"
