@@ -154,12 +154,14 @@ export default function App() {
   const [isPresenting, setIsPresenting] = useState(false);
   
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
-  const [newProjData, setNewProjData] = useState({ name: 'Nuevo Local', client: 'Nombre del Cliente', phone: '', width: 20, height: 8 });
+  // Se actualizan los datos por defecto para el modal de nuevo plano
+  const [newProjData, setNewProjData] = useState({ name: '', client: '', phone: '', width: 20, height: 8 });
 
   const [user, setUser] = useState(null);
   const [savedProjects, setSavedProjects] = useState([]);
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState(null);
   
   const [toast, setToast] = useState(null);
 
@@ -193,7 +195,7 @@ export default function App() {
     const projectsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'projects');
     const unsubscribe = onSnapshot(projectsRef, (snapshot) => {
       const projs = [];
-      snapshot.forEach(d => projs.push(d.data()));
+      snapshot.forEach(d => projs.push({ id: d.id, ...d.data() }));
       setSavedProjects(projs.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
     }, (err) => console.error("Firestore error:", err));
 
@@ -225,16 +227,16 @@ export default function App() {
     showToast('Proyecto cargado para edición');
   };
 
-  const deleteProject = async (id) => {
-    if (!user) return;
-    if(window.confirm("¿Seguro que deseas eliminar este plano permanentemente?")) {
-      try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'projects', id));
-        showToast('Proyecto eliminado');
-      } catch(e) {
-        console.error(e);
-      }
+  const confirmDeleteProject = async () => {
+    if (!user || !projectToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'projects', projectToDelete));
+      showToast('Proyecto eliminado exitosamente');
+    } catch(e) {
+      console.error(e);
+      showToast('Error al eliminar proyecto', 'error');
     }
+    setProjectToDelete(null);
   };
 
   const generateExportCanvas = () => {
@@ -333,7 +335,7 @@ export default function App() {
           
           ctx.fillStyle = '#f8fafc';
           ctx.font = `bold 32px sans-serif`;
-          ctx.fillText(`Proyecto: ${project.name || 'Diseño de Seguridad'}`, pad, currentY);
+          ctx.fillText(`Lugar del proyecto: ${project.name || 'Sin nombre'}`, pad, currentY);
           currentY += 40;
 
           ctx.fillStyle = '#cbd5e1';
@@ -380,7 +382,7 @@ export default function App() {
       a.click();
       URL.revokeObjectURL(url); 
 
-      const msg = `Hola ${project.client || ''}, ¿qué tal? Te envío el diseño preliminar del plano con la distribución de las cámaras para ${project.name}. Por favor, envíame la imagen que se acaba de descargar aquí al chat para que podamos revisarla juntos y coordinar los detalles de la próxima instalación. ¡Quedo atento a tus comentarios!`;
+      const msg = `Hola ${project.client || ''}, ¿qué tal? Te envío el diseño preliminar del plano con la distribución de las cámaras para ${project.name}. Por favor revísalo y quedo a la espera de tu aprobación.`;
       const waUrl = `https://wa.me/51${project.phone.replace(/\s+/g, '')}?text=${encodeURIComponent(msg)}`;
       setTimeout(() => { window.open(waUrl, '_blank'); }, 800); 
     } catch (err) {
@@ -607,6 +609,11 @@ export default function App() {
   }, [selectedId]);
 
   const generateNewProject = () => {
+    if (!newProjData.name) {
+      showToast('Por favor, ingresa el lugar del proyecto', 'error');
+      return;
+    }
+
     const scale = 20; 
     const wPx = newProjData.width * scale;
     const hPx = newProjData.height * scale;
@@ -636,6 +643,7 @@ export default function App() {
     setSelectedId(null);
     setShowNewProjectModal(false);
     setMode('select');
+    showToast('Nuevo plano creado con éxito');
   };
 
   const renderSidebar = () => {
@@ -680,7 +688,10 @@ export default function App() {
         </div>
         <div className="flex flex-col gap-2 px-2 md:px-4">
           <button
-            onClick={() => setShowNewProjectModal(true)}
+            onClick={() => {
+              setNewProjData({ name: '', client: '', phone: '', width: 20, height: 8 });
+              setShowNewProjectModal(true);
+            }}
             className="p-3 rounded-xl flex items-center gap-3 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 transition-colors shadow-lg shadow-slate-900/50 border border-slate-800"
             title="Nuevo Proyecto"
           >
@@ -762,7 +773,6 @@ export default function App() {
         
         <div className="space-y-5">
           
-          {/* Base de Datos de Cámaras */}
           <div className="mb-4">
             <label className="block text-xs font-medium text-slate-400 mb-1">Catálogo de Cámaras</label>
             <select 
@@ -1062,7 +1072,7 @@ export default function App() {
               value={project.name}
               onChange={(e) => setProject({...project, name: e.target.value})}
               className="bg-transparent text-white font-bold text-sm tracking-wide leading-tight focus:outline-none focus:border-b border-blue-500 placeholder-slate-500"
-              placeholder="Nombre del plano (ej. Local Comercial)"
+              placeholder="Lugar del proyecto (ej. Local Comercial)"
               disabled={isPresenting}
             />
             <div className="flex items-center gap-2">
@@ -1142,12 +1152,13 @@ export default function App() {
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Nombre del Proyecto</label>
+              <label className="block text-sm text-slate-400 mb-1">Lugar del proyecto</label>
               <input 
                 type="text" 
                 value={newProjData.name} 
                 onChange={e => setNewProjData({...newProjData, name: e.target.value})} 
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" 
+                placeholder="Ej. Casa de 3 pisos"
               />
             </div>
           </div>
@@ -1159,6 +1170,7 @@ export default function App() {
                 value={newProjData.client} 
                 onChange={e => setNewProjData({...newProjData, client: e.target.value})} 
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" 
+                placeholder="Nombre del cliente"
               />
             </div>
             <div>
@@ -1168,7 +1180,7 @@ export default function App() {
                 value={newProjData.phone} 
                 onChange={e => setNewProjData({...newProjData, phone: e.target.value})} 
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" 
-                placeholder="Opcional"
+                placeholder="Ej. 999 999 999"
               />
             </div>
           </div>
@@ -1193,7 +1205,7 @@ export default function App() {
             </div>
           </div>
           <p className="text-xs text-slate-500 bg-slate-900/50 p-2 rounded border border-slate-800">
-            Si introduces medidas, se dibujará el perímetro base automáticamente.
+            Completa los datos del proyecto. Si introduces medidas, se dibujará el perímetro base automáticamente.
           </p>
           <div className="flex gap-3 mt-6">
             <button onClick={() => setShowNewProjectModal(false)} className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium transition-colors">Cancelar</button>
@@ -1212,7 +1224,7 @@ export default function App() {
             savedProjects.map(p => (
               <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex items-center justify-between hover:border-slate-600 transition-colors">
                 <div className="flex-1 min-w-0 pr-4">
-                  <h4 className="font-semibold text-white text-sm truncate">{p.name}</h4>
+                  <h4 className="font-semibold text-white text-sm truncate">{p.name || 'Sin nombre'}</h4>
                   <p className="text-xs text-slate-400 truncate">{p.client} {p.phone ? `• Cel: ${p.phone}` : ''} • {p.cameras?.length || 0} Cams</p>
                   {p.updatedAt && <p className="text-[10px] text-slate-500 mt-1">Última mod: {new Date(p.updatedAt).toLocaleDateString()}</p>}
                 </div>
@@ -1220,13 +1232,23 @@ export default function App() {
                   <button onClick={() => loadProject(p)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-500 rounded-md transition-colors" title="Editar Plano">
                     <Pencil size={14} /> <span className="text-xs font-semibold">Editar</span>
                   </button>
-                  <button onClick={() => deleteProject(p.id)} className="p-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-md transition-colors" title="Eliminar Permanentemente">
+                  <button onClick={() => setProjectToDelete(p.id)} className="p-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-md transition-colors" title="Eliminar Permanentemente">
                     <Trash2 size={16} />
                   </button>
                 </div>
               </div>
             ))
           )}
+        </div>
+      </Modal>
+
+      <Modal isOpen={!!projectToDelete} title="Confirmar Eliminación" onClose={() => setProjectToDelete(null)}>
+        <div className="space-y-4">
+          <p className="text-sm text-slate-300">¿Estás seguro que deseas eliminar este plano permanentemente? Esta acción no se puede deshacer.</p>
+          <div className="flex gap-3 mt-6">
+            <button onClick={() => setProjectToDelete(null)} className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium transition-colors">Cancelar</button>
+            <button onClick={confirmDeleteProject} className="flex-1 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-white font-medium transition-colors">Eliminar</button>
+          </div>
         </div>
       </Modal>
 
