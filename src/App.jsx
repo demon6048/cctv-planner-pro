@@ -23,6 +23,17 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 const appId = 'cctv-planner-pro';
 
+const CAMERA_DATABASE = [
+  {
+    id: 'hik-ds-2cd1347g2h-liu',
+    label: 'Hikvision DS-2CD1347G2H-LIU (2.8mm)',
+    sensorWidth: 6.22,
+    focalLength: 2.8,
+    hfov: 96,
+    maxDist: 25
+  }
+];
+
 const toRad = (deg) => deg * (Math.PI / 180);
 const toDeg = (rad) => rad * (180 / Math.PI);
 
@@ -75,12 +86,12 @@ const DEMO_PROJECT = {
     { 
       id: 'cam-1', name: 'CAM-01 Recepción', x: 120, y: 120, orientation: 45, 
       sensorWidth: 4.8, focalLength: 2.8, hfov: calcHFOV(4.8, 2.8), 
-      maxDist: 15, color: '#0ea5e9', calcMode: 'optical', height: 2.5 
+      maxDist: 15, color: '#0ea5e9', calcMode: 'optical', height: 2.5, modelId: ''
     },
     { 
       id: 'cam-2', name: 'CAM-02 Pasillo', x: 320, y: 120, orientation: 0, 
       sensorWidth: 4.8, focalLength: 3.6, hfov: calcHFOV(4.8, 3.6), 
-      maxDist: 20, color: '#10b981', calcMode: 'optical', height: 2.5 
+      maxDist: 20, color: '#10b981', calcMode: 'optical', height: 2.5, modelId: ''
     }
   ]
 };
@@ -158,7 +169,7 @@ export default function App() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
   const svgRef = useRef(null);
-  const logoUrl = "https://i.imgur.com/VkOs5HF.png"; // LOGO DEL USUARIO
+  const logoUrl = "https://i.imgur.com/VkOs5HF.png";
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -226,13 +237,11 @@ export default function App() {
     }
   };
 
-  // --- MOTOR DE EXPORTACIÓN Y RECORTE INTELIGENTE ---
   const generateExportCanvas = () => {
     return new Promise((resolve, reject) => {
       const svgElement = svgRef.current;
       if (!svgElement) return reject("No SVG");
 
-      // 1. Escanear límites reales de los muros y cámaras (Encontrar la "caja perfecta")
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       
       project.walls.forEach(w => {
@@ -257,17 +266,14 @@ export default function App() {
           maxY = Math.max(maxY, 800); 
       }
 
-      // Si el lienzo está vacío, poner medidas por defecto
       if (minX === Infinity) {
           minX = 0; minY = 0; maxX = 800; maxY = 600;
       }
 
-      // Medidas exactas sin el padding para la leyenda inteligente
       const exactW = (maxX - minX) / project.scale;
       const exactH = (maxY - minY) / project.scale;
 
-      // 2. Darle margen (padding) al recuadro
-      const padding = project.scale * 2; // 2 metros de margen visual
+      const padding = project.scale * 2; 
       minX -= padding;
       minY -= padding;
       maxX += padding;
@@ -276,7 +282,6 @@ export default function App() {
       const contentW = maxX - minX;
       const contentH = maxY - minY;
 
-      // 3. Establecer alta resolución (Full HD mínimo)
       const targetWidth = Math.max(1920, contentW * 2);
       const ratio = targetWidth / contentW;
       const targetHeight = contentH * ratio;
@@ -287,7 +292,6 @@ export default function App() {
       canvas.height = targetHeight + footerH;
       const ctx = canvas.getContext("2d");
 
-      // 4. Clonar el SVG y eliminar los efectos de Zoom/Paneo de la pantalla del usuario
       const cloneSvg = svgElement.cloneNode(true);
       if (!cloneSvg.getAttribute("xmlns")) {
         cloneSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
@@ -298,12 +302,10 @@ export default function App() {
           rootGroup.removeAttribute('transform'); 
       }
 
-      // Ajustar el SVG al recuadro perfecto
       cloneSvg.setAttribute('viewBox', `${minX} ${minY} ${contentW} ${contentH}`);
       cloneSvg.setAttribute('width', targetWidth);
       cloneSvg.setAttribute('height', targetHeight);
 
-      // 5. Dibujar en el Canvas
       const svgData = new XMLSerializer().serializeToString(cloneSvg);
       const img = new Image();
       const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
@@ -312,10 +314,8 @@ export default function App() {
       img.onload = () => {
           ctx.fillStyle = '#020617'; 
           ctx.fillRect(0, 0, canvas.width, canvas.height);
-          
           ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
           
-          // Pie de página profesional
           const footerY = targetHeight;
           ctx.fillStyle = '#0f172a';
           ctx.fillRect(0, footerY, canvas.width, footerH);
@@ -347,7 +347,6 @@ export default function App() {
 
           const finalize = () => resolve({ canvas, url });
 
-          // Logo corporativo
           const logoImg = new Image();
           logoImg.crossOrigin = "anonymous";
           logoImg.onload = () => {
@@ -381,7 +380,7 @@ export default function App() {
       a.click();
       URL.revokeObjectURL(url); 
 
-      const msg = `Hola ${project.client || ''}, te envío adjunto el diseño técnico del plano con la distribución de cámaras propuesta para: ${project.name}. (Por favor, envíame la imagen que se acaba de descargar para revisarlo juntos).`;
+      const msg = `Hola ${project.client || ''}, ¿qué tal? Te envío el diseño preliminar del plano con la distribución de las cámaras para ${project.name}. Por favor, envíame la imagen que se acaba de descargar aquí al chat para que podamos revisarla juntos y coordinar los detalles de la próxima instalación. ¡Quedo atento a tus comentarios!`;
       const waUrl = `https://wa.me/51${project.phone.replace(/\s+/g, '')}?text=${encodeURIComponent(msg)}`;
       setTimeout(() => { window.open(waUrl, '_blank'); }, 800); 
     } catch (err) {
@@ -466,7 +465,8 @@ export default function App() {
         y: coords.y,
         orientation: 0,
         sensorWidth: 4.8, focalLength: 2.8, hfov: calcHFOV(4.8, 2.8),
-        maxDist: 15, color: '#3b82f6', calcMode: 'optical', height: 2.5
+        maxDist: 15, color: '#3b82f6', calcMode: 'optical', height: 2.5,
+        modelId: ''
       };
       setProject(p => ({ ...p, cameras: [...p.cameras, newCam] }));
       setSelectedId(newCam.id);
@@ -593,7 +593,7 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (document.activeElement.tagName !== 'INPUT') {
+        if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {
           deleteSelected();
         }
       }
@@ -761,6 +761,35 @@ export default function App() {
         </h2>
         
         <div className="space-y-5">
+          
+          {/* Base de Datos de Cámaras */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-slate-400 mb-1">Catálogo de Cámaras</label>
+            <select 
+              className="w-full bg-slate-800 text-slate-200 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+              value={selectedCam.modelId || ""}
+              onChange={(e) => {
+                const model = CAMERA_DATABASE.find(m => m.id === e.target.value);
+                if (model) {
+                  updateCamera(selectedCam.id, {
+                    name: model.label,
+                    sensorWidth: model.sensorWidth,
+                    focalLength: model.focalLength,
+                    hfov: model.hfov,
+                    maxDist: model.maxDist,
+                    calcMode: 'manual',
+                    modelId: model.id
+                  });
+                }
+              }}
+            >
+              <option value="" disabled>Seleccione un modelo...</option>
+              {CAMERA_DATABASE.map(cam => (
+                <option key={cam.id} value={cam.id}>{cam.label}</option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1">Identificador</label>
             <input 
@@ -929,7 +958,6 @@ export default function App() {
                     <title>Longitud: {len.toFixed(2)}m</title>
                   </line>
                   
-                  {}
                   {selectedId === wall.id && (
                     <text 
                       x={midX} y={midY - 5} 
@@ -1021,7 +1049,6 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-slate-950 font-sans overflow-hidden text-slate-200">
       
-      {/* CABECERA CON EDICIÓN EN VIVO Y LOGO */}
       <header className="h-auto min-h-14 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-2 shrink-0 z-30">
         <div className="flex items-start gap-4 w-full md:w-auto">
           
@@ -1063,7 +1090,6 @@ export default function App() {
         <div className="flex items-center gap-2 mt-2 md:mt-0 ml-auto">
           {!isPresenting ? (
             <>
-              {/* BOTÓN WHATSAPP EXPORTADOR INTELIGENTE */}
               <button 
                 onClick={handleWhatsApp}
                 className="px-3 py-1.5 text-xs font-semibold bg-green-500/10 text-green-400 hover:bg-green-500 hover:text-white border border-green-500/20 rounded-md transition-colors flex items-center gap-2 shadow-lg shadow-green-900/10"
