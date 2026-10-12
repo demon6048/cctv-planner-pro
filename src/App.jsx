@@ -55,6 +55,30 @@ const CAMERA_DATABASE = [
     focalLength: 2.8,
     hfov: 179,
     maxDist: 25
+  },
+  {
+    id: 'hik-ds-2ce10df0t-pf-2-8mm',
+    label: 'Hikvision DS-2CE10DF0T-PF ColorVu (2.8mm)',
+    sensorWidth: 6.44,
+    focalLength: 2.8,
+    hfov: 98,
+    maxDist: 20
+  },
+  {
+    id: 'hik-ds-2ce10df0t-pf-3-6mm',
+    label: 'Hikvision DS-2CE10DF0T-PF ColorVu (3.6mm)',
+    sensorWidth: 5.62,
+    focalLength: 3.6,
+    hfov: 76,
+    maxDist: 20
+  },
+  {
+    id: 'hik-ds-2ce10df0t-pf-6mm',
+    label: 'Hikvision DS-2CE10DF0T-PF ColorVu (6mm)',
+    sensorWidth: 5.6,
+    focalLength: 6.0,
+    hfov: 50,
+    maxDist: 20
   }
 ];
 
