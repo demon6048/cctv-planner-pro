@@ -716,7 +716,31 @@ export default function App() {
 
   const renderPropertyPanel = () => {
     const selectedCam = project.cameras.find(c => c.id === selectedId);
+    const selectedWall = project.walls.find(w => w.id === selectedId);
     
+    if (selectedWall) {
+      const len = distance({x: selectedWall.x1, y: selectedWall.y1}, {x: selectedWall.x2, y: selectedWall.y2}) / project.scale;
+      return (
+        <div className="w-80 bg-slate-900 border-l border-slate-800 p-6 flex flex-col shrink-0 z-20">
+          <h2 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+            <Square className="text-blue-500" size={20} /> Propiedades del Muro
+          </h2>
+          <div className="space-y-4">
+            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+              <label className="block text-xs font-medium text-slate-400 mb-1">Longitud Total</label>
+              <div className="text-2xl font-mono text-blue-400">{len.toFixed(2)} m</div>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Arrastra el muro desde el lienzo para reposicionarlo. Para cambiar su tamaño, elimínalo y vuelve a dibujarlo.
+            </p>
+            <button onClick={deleteSelected} className="w-full mt-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors">
+              <Trash2 size={16} /> Eliminar Muro
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (!selectedCam) {
       return (
         <div className="w-80 bg-slate-900 border-l border-slate-800 p-6 flex flex-col items-center justify-center text-slate-500 shrink-0 z-20">
@@ -901,19 +925,25 @@ export default function App() {
                       setIsDragging('wall');
                       setDragOffset(getMouseCoords(e)); 
                     }}
-                  />
-                  <text 
-                    x={midX} y={midY - 5} 
-                    fill={selectedId === wall.id ? "#60a5fa" : "#94a3b8"} 
-                    fontSize="9" 
-                    fontFamily="monospace"
-                    fontWeight="bold"
-                    textAnchor="middle"
-                    transform={`rotate(${angle} ${midX} ${midY})`}
-                    className="pointer-events-none"
                   >
-                    {len.toFixed(1)}m
-                  </text>
+                    <title>Longitud: {len.toFixed(2)}m</title>
+                  </line>
+                  
+                  {}
+                  {selectedId === wall.id && (
+                    <text 
+                      x={midX} y={midY - 5} 
+                      fill="#60a5fa" 
+                      fontSize="11" 
+                      fontFamily="monospace"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                      transform={`rotate(${angle} ${midX} ${midY})`}
+                      className="pointer-events-none drop-shadow-md"
+                    >
+                      {len.toFixed(2)}m
+                    </text>
+                  )}
                 </g>
               );
             })}
